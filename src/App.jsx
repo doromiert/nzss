@@ -298,7 +298,7 @@ const CodeEditor = ({ value, onChange, placeholder, label, colorClass, readOnly 
     return (
         <div className={`flex flex-col h-full overflow-hidden ${className}`}>
             <div className="px-4 py-2 flex justify-between items-center bg-[var(--bg-header)] ">
-                <span className={`text-xs font-mono uppercase tracking-widest ${colorClass} opacity-80`}>{label}</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${colorClass}`}>{label}</span>
             </div>
             <div className="relative flex-1 font-mono text-sm overflow-hidden group bg-[var(--bg-main)]">
                 <div 
