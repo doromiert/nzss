@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
 
-let textareaRef = null;
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 
 // --- SEMANTIC PATCH ENGINE ---
 
@@ -274,51 +273,98 @@ const LineNumbers = ({ text, scrollRef, changedLines = [], previewLines = [], li
 };
 
 const CodeEditor = ({ value, onChange, placeholder, label, colorClass, readOnly = false, className = "", changedLines = [], previewLines = [], language = null }) => {
-    const renderHighlightedCode = (text) => {
-        if (!text) return null;
+    const textareaRef = useRef(null);
+    const linesRef = useRef(null);
+    const highlightRef = useRef(null);
 
-        // Custom highlighting for NZSS directives
-        let highlighted = text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
+    const tokenizer = useMemo(() => compileTokenizer(language), [language]);
 
-        // Target @KEYWORD (the first word after @)
-        highlighted = highlighted.replace(/^(@\s*)([A-Z_]+)/gm, (match, at, keyword) => {
-            return `${at}<span class="${colorClass} font-bold brightness-125">${keyword}</span>`;
-        });
-
-        if (language === 'json') {
-            highlighted = highlighted.replace(/"([^"]+)":/g, '<span class="text-blue-400">"$1"</span>:');
+    const handleScroll = () => {
+        if (linesRef.current && textareaRef.current) {
+            linesRef.current.scrollTop = textareaRef.current.scrollTop;
+            if (highlightRef.current) {
+                highlightRef.current.scrollTop = textareaRef.current.scrollTop;
+                highlightRef.current.scrollLeft = textareaRef.current.scrollLeft;
+            }
         }
+    };
 
-        return <div dangerouslySetInnerHTML={{ __html: highlighted }} />;
+    const renderHighlight = (code) => {
+        const lines = code.split('\n');
+        return lines.map((lineText, idx) => {
+            let content;
+            if (label === "NZSS Patch" && lineText.trimStart().startsWith('@')) {
+                const match = lineText.match(/^(\s*)(@\s*\w+)(.*)/);
+                if (match) {
+                    content = <>{match[1]}<span className="text-[#fba7ff] font-black">{match[2]}</span>{match[3]}</>;
+                } else {
+                    content = lineText;
+                }
+            } else if (tokenizer) {
+                const matches = [...lineText.matchAll(tokenizer.regex)];
+                if (matches.length > 0) {
+                    let lastIndex = 0;
+                    const elements = [];
+                    matches.forEach((match, mIdx) => {
+                        if (match.index > lastIndex) {
+                            elements.push(<span key={`text-${mIdx}`}>{lineText.slice(lastIndex, match.index)}</span>);
+                        }
+                        const matchTypeIdx = match.slice(1).findIndex(m => m !== undefined);
+                        const type = tokenizer.types[matchTypeIdx];
+                        elements.push(<span key={`token-${mIdx}`} className={SYNTAX_COLORS[type]}>{match[0]}</span>);
+                        lastIndex = match.index + match[0].length;
+                    });
+                    if (lastIndex < lineText.length) {
+                        elements.push(<span key="text-end">{lineText.slice(lastIndex)}</span>);
+                    }
+                    content = elements;
+                } else {
+                    content = lineText;
+                }
+            } else {
+                content = lineText;
+            }
+
+            return (
+                <div key={idx} style={{ minHeight: '1.5rem' }}>
+                    {content || ' '}
+                </div>
+            );
+        });
     };
 
     return (
-        <div className={`flex flex-col h-full overflow-hidden ${className}`}>
-            <div className="px-4 py-2 flex justify-between items-center bg-[var(--bg-header)] ">
-            <span className={`text-[10px] font-black uppercase tracking-widest ${colorClass}`}>{label}</span>
-            </div>
-            <div className="relative flex-1 font-mono text-sm overflow-hidden group bg-[var(--bg-main)]">
-                <div 
-                    className="absolute inset-0 p-4 pointer-events-none whitespace-pre-wrap break-all overflow-y-auto custom-scrollbar"
-                    style={{ color: 'transparent' }}
-                >
-                    {renderHighlightedCode(value)}
+        <div className={`flex flex-col flex-1 h-full bg-[var(--bg-main)]  border-[var(--border-color)] overflow-hidden min-w-0 ${className}`}>
+            <div className="px-4 h-[32px] py-2  -[var(--border-color)] bg-[var(--bg-header)] flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${colorClass}`}>{label}</span>
+                    {language && <span className="px-1.5 py-0.5 bg-[var(--bg-card)] text-[var(--text-dim)] rounded text-[8px] uppercase  border-[var(--border-color)]">{language}</span>}
                 </div>
-                <textarea
-                    ref={textareaRef}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    onScroll={(e) => {
-                        const backdrop = e.target.previousSibling;
-                        if (backdrop) backdrop.scrollTop = e.target.scrollTop;
-                    }}
-                    placeholder={placeholder}
-                    spellCheck="false"
-                    className="absolute inset-0 w-full h-full p-4 bg-transparent text-white/90 outline-none resize-none caret-purple-500 whitespace-pre-wrap break-all overflow-y-auto custom-scrollbar"
-                />
+                <span className="text-[10px] text-[var(--text-dim)] font-mono">{value.split('\n').length} lines</span>
+            </div>
+            
+            <div className="flex flex-1 overflow-hidden relative">
+                <LineNumbers text={value} scrollRef={linesRef} changedLines={changedLines} previewLines={previewLines} />
+                <div className="flex-1 relative">
+                    <div 
+                        ref={highlightRef}
+                        className="absolute inset-0 p-4 font-mono text-xs pointer-events-none whitespace-pre overflow-hidden"
+                        style={{ lineHeight: '1.5rem' }}
+                    >
+                        {renderHighlight(value)}
+                    </div>
+                    <textarea
+                        ref={textareaRef}
+                        value={value}
+                        onChange={(e) => !readOnly && onChange(e.target.value)}
+                        onScroll={handleScroll}
+                        placeholder={placeholder}
+                        spellCheck="false"
+                        readOnly={readOnly}
+                        className="absolute inset-0 bg-transparent p-4 font-mono text-xs text-transparent caret-white outline-none resize-none whitespace-pre overflow-auto custom-scrollbar selection:bg-[var(--accent-primary)]/30 selection:text-[var(--text-main)]"
+                        style={{ lineHeight: '1.5rem' }}
+                    />
+                </div>
             </div>
         </div>
     );
@@ -355,7 +401,7 @@ const DiffViewer = ({ chunks, label, className = "" }) => {
 
     return (
         <div className={`flex flex-col flex-1 h-full bg-[var(--bg-main)]  border-[var(--border-color)] overflow-hidden min-w-0 ${className}`}>
-            <div className="px-4 py-2  -[var(--border-color)] bg-[var(--bg-header)] flex justify-between items-center">
+            <div className="px-4 py-2 h-[32px] -[var(--border-color)] bg-[var(--bg-header)] flex justify-between items-center">
                 <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">{label}</span>
                 <span className="text-[10px] text-[var(--text-dim)] font-mono">{fullText.split('\n').length} lines</span>
             </div>
@@ -442,7 +488,7 @@ export default function App() {
                     --bg-card: #2a2a2a;
                     --bg-popover: #353535;
                     --border-color: rgba(255, 255, 255, 0.08);
-                    --accent-primary: #3584e4;
+                    --accent-primary: #9141ac;
                     --text-main: #ffffff;
                     --text-dim: #9a9a9a;
                     --radius: 8px;
@@ -583,7 +629,7 @@ export default function App() {
                         onChange={setNzss} 
                         colorClass="text-purple-400"
                         placeholder="@ TARGET: FUNCTION name\n@ ACTION: REPLACE_BODY\n{...}\n@ END"
-                        className="rounded-xl shadow-2xl"
+                        className="rounded-xl"
                     />
                 </div>
                 
@@ -613,4 +659,5 @@ export default function App() {
         </div>
     );
 }
+
 
